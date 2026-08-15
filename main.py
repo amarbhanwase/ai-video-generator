@@ -1,12 +1,12 @@
 import os
 import re
 import uuid
+import requests
+import urllib.parse
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from google.cloud import texttospeech
-from google import genai
 from PIL import Image
-from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
+from gtts import gTTS
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -53,104 +53,45 @@ def parse_script(script: str) -> List[str]:
 
 def generate_audio(text: str, index: int, job_id: str) -> str:
     """
-    Generates audio for a given text using Google Cloud TTS.
+    Generates audio for a given text using gTTS (Google Translate TTS).
     Returns the file path to the generated audio.
     """
+    output_path = f"app/outputs/{job_id}_{index}.mp3"
     try:
-        # Check if credentials exist, otherwise mock for testing without actual keys
-        if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-            # Mock behavior
-            output_path = f"app/outputs/{job_id}_{index}.mp3"
-            with open(output_path, "wb") as f:
-                f.write(b"MOCK_AUDIO_DATA")
-            return output_path
-
-        client = texttospeech.TextToSpeechClient()
-
-        synthesis_input = texttospeech.SynthesisInput(text=text)
-
-        # Build the voice request, select the language code and the ssml
-        # voice gender ("neutral")
-        voice = texttospeech.VoiceSelectionParams(
-            language_code="en-US",
-            name="en-US-Neural2-F"
-        )
-
-        # Select the type of audio file you want returned
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3
-        )
-
-        # Perform the text-to-speech request on the text input with the selected
-        # voice parameters and audio file type
-        response = client.synthesize_speech(
-            input=synthesis_input, voice=voice, audio_config=audio_config
-        )
-
-        # The response's audio_content is binary.
-        output_path = f"app/outputs/{job_id}_{index}.mp3"
-        with open(output_path, "wb") as out:
-            out.write(response.audio_content)
-
+        tts = gTTS(text=text, lang='en', slow=False)
+        tts.save(output_path)
         return output_path
     except Exception as e:
         print(f"Error generating audio for scene {index}: {str(e)}")
-        # Fallback to mock on error
-        output_path = f"app/outputs/{job_id}_{index}.mp3"
+        # Create an empty/dummy file as fallback
         with open(output_path, "wb") as f:
-            f.write(b"MOCK_AUDIO_DATA_FALLBACK")
+            pass
         return output_path
 
 def generate_image(scene_text: str, index: int, job_id: str, aspect_ratio: str) -> str:
     """
-    Generates an image for a scene using Google Gemini/Imagen API.
+    Generates an image for a scene using Pollinations.ai API.
     Returns the file path to the generated image.
     """
     output_path = f"app/outputs/{job_id}_{index}.png"
 
     try:
-        api_key = os.environ.get("GOOGLE_API_KEY")
-        if not api_key or api_key == "your_gemini_api_key_here":
-            # Mock behavior: create a solid color image
-            width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
-            colors = ["red", "green", "blue", "yellow", "purple", "orange"]
-            img = Image.new('RGB', (width, height), color = colors[index % len(colors)])
-            img.save(output_path)
-            return output_path
-
-        client = genai.Client(api_key=api_key)
-
-        # Create a more visual prompt based on the scene text
+        width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
         prompt = f"Cinematic, high quality, highly detailed scene: {scene_text}"
-        if aspect_ratio == "16:9":
-            prompt += " in 16:9 aspect ratio widescreen."
-        else:
-            prompt += " in 9:16 aspect ratio vertical."
+        encoded_prompt = urllib.parse.quote(prompt)
 
-        # Call Imagen 3 via Gemini SDK
-        result = client.models.generate_images(
-            model='imagen-3.0-generate-002',
-            prompt=prompt,
-            config=dict(
-                number_of_images=1,
-                output_mime_type="image/jpeg",
-                # The model infers aspect ratio from prompt or specific config parameters if supported
-                aspect_ratio=aspect_ratio.replace(":", "/")
-            )
-        )
+        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true"
 
-        # Save the first generated image
-        if result.generated_images:
-            image_bytes = result.generated_images[0].image.image_bytes
-            with open(output_path, "wb") as f:
-                f.write(image_bytes)
-            return output_path
-        else:
-            raise Exception("No image generated")
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
 
+        with open(output_path, "wb") as f:
+            f.write(response.content)
+
+        return output_path
     except Exception as e:
         print(f"Error generating image for scene {index}: {str(e)}")
-        # Fallback to mock on error
+        # Fallback to a solid color image on error
         width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
         img = Image.new('RGB', (width, height), color = "gray")
         img.save(output_path)

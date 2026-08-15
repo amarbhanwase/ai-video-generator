@@ -68,34 +68,94 @@ def generate_audio(text: str, index: int, job_id: str) -> str:
             pass
         return output_path
 
+import random
+import time
+
+def process_and_save_image(image_bytes: bytes, output_path: str, target_width: int, target_height: int):
+    """
+    Ensures downloaded image is properly resized and cropped to the requested
+    dimensions (aspect ratio) before feeding into MoviePy.
+    """
+    import io
+    from PIL import Image, ImageOps
+
+    # Load image from bytes
+    img = Image.open(io.BytesIO(image_bytes))
+
+    # Resize and crop to fill the target dimensions exactly
+    img = ImageOps.fit(img, (target_width, target_height), Image.Resampling.LANCZOS)
+
+    # Convert to RGB to ensure PNG/JPEG compatibility without alpha channel issues in MoviePy
+    img = img.convert("RGB")
+
+    # Save the processed image
+    img.save(output_path, format="PNG")
+
 def generate_image(scene_text: str, index: int, job_id: str, aspect_ratio: str) -> str:
     """
-    Generates an image for a scene using Pollinations.ai API.
-    Returns the file path to the generated image.
+    Generates an image for a scene using Pollinations.ai API with retries and timeout=60.
+    Falls back to Unsplash/LoremFlickr stock photos if Pollinations fails.
+    Ensures downloaded images are properly resized and cropped to the aspect ratio.
     """
     output_path = f"app/outputs/{job_id}_{index}.png"
+    width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
 
-    try:
-        width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
-        prompt = f"Cinematic, high quality, highly detailed scene: {scene_text}"
-        encoded_prompt = urllib.parse.quote(prompt)
+    # Basic keyword extraction for fallback stock images (just grab first long word or two)
+    words = [w for w in re.sub(r'[^a-zA-Z\s]', '', scene_text).split() if len(w) > 3]
+    keyword = words[0] if words else "nature"
 
-        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true"
+    success = False
 
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
+    # 1. Try Pollinations API with 2 retries (3 attempts total)
+    prompt = f"Cinematic, high quality, highly detailed scene: {scene_text}"
+    encoded_prompt = urllib.parse.quote(prompt)
+    pollinations_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true"
 
-        with open(output_path, "wb") as f:
-            f.write(response.content)
+    for attempt in range(3):
+        try:
+            print(f"Fetching image from Pollinations (attempt {attempt+1})...")
+            response = requests.get(pollinations_url, timeout=60)
+            response.raise_for_status()
 
-        return output_path
-    except Exception as e:
-        print(f"Error generating image for scene {index}: {str(e)}")
-        # Fallback to a solid color image on error
-        width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
-        img = Image.new('RGB', (width, height), color = "gray")
+            # Process and save
+            process_and_save_image(response.content, output_path, width, height)
+            success = True
+            break
+        except Exception as e:
+            print(f"Pollinations attempt {attempt+1} failed: {e}")
+            if attempt < 2:
+                time.sleep(2) # brief pause before retry
+
+    # 2. Fast Fallback: Random Stock Photo API
+    if not success:
+        print("Falling back to stock photo...")
+        fallback_urls = [
+            # LoremFlickr (highly reliable stock photo alternative)
+            f"https://loremflickr.com/{width}/{height}/{keyword},cinematic/all",
+            # Picsum (random stock photos)
+            f"https://picsum.photos/{width}/{height}"
+        ]
+
+        for fb_url in fallback_urls:
+            try:
+                print(f"Fetching fallback from {fb_url}...")
+                response = requests.get(fb_url, timeout=15)
+                response.raise_for_status()
+
+                # Process and save
+                process_and_save_image(response.content, output_path, width, height)
+                success = True
+                break
+            except Exception as e:
+                print(f"Fallback {fb_url} failed: {e}")
+
+    # 3. Last Resort Absolute Fallback (should theoretically never happen now)
+    if not success:
+        print("All image sources failed. Using last-resort generated fallback.")
+        img = Image.new('RGB', (width, height), color = (random.randint(0,255), random.randint(0,255), random.randint(0,255)))
         img.save(output_path)
-        return output_path
+
+    return output_path
 
 def create_video(job_id: str, image_paths: List[str], audio_paths: List[str], aspect_ratio: str) -> str:
     """

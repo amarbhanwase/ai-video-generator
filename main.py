@@ -5,8 +5,9 @@ import requests
 import urllib.parse
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
+import asyncio
+import edge_tts
 from PIL import Image
-from gtts import gTTS
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -37,29 +38,41 @@ class VideoRequest(BaseModel):
 def parse_script(script: str) -> List[str]:
     """
     Breaks a text script into short micro-scenes.
-    Uses basic sentence splitting for simplicity.
+    Targeting 3-5 words per scene for high-paced visual changes (1.5-2.5s per image).
     """
-    # Split by punctuation that typically ends a sentence/phrase
-    raw_scenes = re.split(r'(?<=[.?!])\s+', script.strip())
+    # First split into sentences/phrases
+    raw_sentences = re.split(r'(?<=[.?!,])\s+', script.strip())
 
-    # Filter out empty scenes and clean whitespace
-    scenes = [scene.strip() for scene in raw_scenes if scene.strip()]
+    scenes = []
+    for sentence in raw_sentences:
+        if not sentence.strip():
+            continue
 
-    # If script has no punctuation or is too long, we might need further chunking,
-    # but basic sentence split works well as a starting point.
+        words = sentence.split()
 
-    # ensure no scene is completely empty
+        # If the sentence is short enough, keep it as one scene
+        if len(words) <= 6:
+            scenes.append(sentence.strip())
+        else:
+            # Chunk the longer sentences into groups of ~4 words
+            chunk_size = 4
+            for i in range(0, len(words), chunk_size):
+                chunk = " ".join(words[i:i+chunk_size])
+                if chunk.strip():
+                    scenes.append(chunk)
+
     return scenes
 
-def generate_audio(text: str, index: int, job_id: str) -> str:
+async def generate_audio(text: str, index: int, job_id: str) -> str:
     """
-    Generates audio for a given text using gTTS (Google Translate TTS).
+    Generates audio for a given text using edge-tts (hi-IN-MadhurNeural).
     Returns the file path to the generated audio.
     """
     output_path = f"app/outputs/{job_id}_{index}.mp3"
     try:
-        tts = gTTS(text=text, lang='en', slow=False)
-        tts.save(output_path)
+        # We use hi-IN-MadhurNeural for a deep, realistic male narration
+        communicate = edge_tts.Communicate(text, "hi-IN-MadhurNeural")
+        await communicate.save(output_path)
         return output_path
     except Exception as e:
         print(f"Error generating audio for scene {index}: {str(e)}")
@@ -106,10 +119,10 @@ def generate_image(scene_text: str, index: int, job_id: str, aspect_ratio: str) 
 
     success = False
 
-    # 1. Try Pollinations API with 2 retries (3 attempts total)
+    # 1. Try Pollinations API with turbo model for dynamic high-paced images
     prompt = f"Cinematic, high quality, highly detailed scene: {scene_text}"
     encoded_prompt = urllib.parse.quote(prompt)
-    pollinations_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true"
+    pollinations_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true&model=turbo"
 
     for attempt in range(3):
         try:
@@ -190,51 +203,59 @@ def create_video(job_id: str, image_paths: List[str], audio_paths: List[str], as
             base_w, base_h = int(width * 1.1), int(height * 1.1)
             img_clip = img_clip.resized(new_size=(base_w, base_h))
 
-            # 3. Create a dynamic cropping function over time
-            def make_frame_zoom(t):
-                # Calculate progress from 0 to 1 over the clip duration
+            # 3. Create dynamic alternating crop effects
+            # We will rotate between zoom-out, zoom-in, and pan-left
+            effect_type = i % 3
+
+            def make_frame_dynamic(t):
                 progress = t / duration
+                import numpy as np
 
-                # We start zoomed in (showing the center of the image)
-                # And we zoom out slightly over time by expanding the crop window
-                # Start crop window size (1.0x width/height)
-                current_w = width * (1.0 + 0.1 * (1.0 - progress))
-                current_h = height * (1.0 + 0.1 * (1.0 - progress))
+                if effect_type == 0:
+                    # Zoom-out: Start cropped (zoomed in), expand to full view
+                    current_w = width * (1.0 + 0.1 * (1.0 - progress))
+                    current_h = height * (1.0 + 0.1 * (1.0 - progress))
+                    x_center = base_w / 2
+                    y_center = base_h / 2
+                elif effect_type == 1:
+                    # Zoom-in: Start full view, shrink crop window (zoom in) over time
+                    current_w = width * (1.0 + 0.1 * progress)
+                    current_h = height * (1.0 + 0.1 * progress)
+                    x_center = base_w / 2
+                    y_center = base_h / 2
+                else:
+                    # Pan-left: Crop window moves from right to left
+                    current_w = width
+                    current_h = height
+                    # x_center goes from right bound to left bound
+                    start_x = base_w - (width / 2)
+                    end_x = width / 2
+                    x_center = start_x + (end_x - start_x) * progress
+                    y_center = base_h / 2
 
-                # Center coordinates
-                x_center = base_w / 2
-                y_center = base_h / 2
-
-                # Calculate crop box (x1, y1, x2, y2)
                 x1 = int(x_center - current_w / 2)
                 y1 = int(y_center - current_h / 2)
 
-                # Get the frame from the original (resized) clip
                 frame = img_clip.get_frame(t)
-
-                # Crop the frame using standard numpy slicing
                 cropped = frame[y1:y1+int(current_h), x1:x1+int(current_w)]
 
-                # The cropped frame may not be EXACTLY width/height due to zooming
-                # Convert back to PIL to resize to EXACT width/height, then back to numpy
-                import numpy as np
                 pil_img = Image.fromarray(cropped)
                 final_img = pil_img.resize((width, height), Image.Resampling.LANCZOS)
                 return np.array(final_img)
 
-            # Create a new VideoClip from our dynamic frame generator
             from moviepy.video.VideoClip import VideoClip
-            zoomed_clip = VideoClip(make_frame_zoom, duration=duration)
+            dynamic_clip = VideoClip(make_frame_dynamic, duration=duration)
 
             if audio_clip:
-                zoomed_clip = zoomed_clip.with_audio(audio_clip)
+                dynamic_clip = dynamic_clip.with_audio(audio_clip)
 
-            clips.append(zoomed_clip)
+            clips.append(dynamic_clip)
 
         if not clips:
             raise Exception("No clips to stitch")
 
-        final_video = concatenate_videoclips(clips, method="compose")
+        # Hard cuts provide the fast pacing for Shorts/Reels
+        final_video = concatenate_videoclips(clips, method="chain")
         final_video.write_videofile(
             output_path,
             fps=24,
@@ -256,7 +277,7 @@ async def read_root(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
 
 @app.post("/generate")
-async def generate_video(req: VideoRequest):
+async def generate_video_endpoint(req: VideoRequest):
     script = req.script
     aspect_ratio = req.aspect_ratio
 
@@ -275,7 +296,8 @@ async def generate_video(req: VideoRequest):
     audio_paths = []
     image_paths = []
     for i, scene in enumerate(scenes):
-        audio_path = generate_audio(scene, i, job_id)
+        # We must await the new async generate_audio
+        audio_path = await generate_audio(scene, i, job_id)
         audio_paths.append(audio_path)
 
         image_path = generate_image(scene, i, job_id, aspect_ratio)

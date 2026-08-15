@@ -4,6 +4,6 @@ jinja2
 python-multipart
 moviepy
 pillow
-gTTS
+edge-tts
 python-dotenv
 requests

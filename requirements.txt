@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+jinja2
+python-multipart
+moviepy
+pillow
+google-cloud-texttospeech
+google-genai
+python-dotenv
+requests

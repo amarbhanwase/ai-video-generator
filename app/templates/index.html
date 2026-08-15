@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Video Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 4px solid #3498db;
+            width: 30px;
+            height: 30px;
+            -webkit-animation: spin 2s linear infinite; /* Safari */
+            animation: spin 2s linear infinite;
+        }
+
+        /* Safari */
+        @-webkit-keyframes spin {
+            0% { -webkit-transform: rotate(0deg); }
+            100% { -webkit-transform: rotate(360deg); }
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans antialiased min-h-screen">
+    <div class="max-w-4xl mx-auto py-10 px-4 sm:px-6 lg:px-8">
+        <h1 class="text-3xl font-extrabold text-center text-gray-900 mb-8">AI Script-to-Video Generator</h1>
+
+        <div class="bg-white shadow rounded-lg p-6 mb-8">
+            <form id="videoForm">
+                <div class="mb-4">
+                    <label for="script" class="block text-sm font-medium text-gray-700 mb-2">Video Script</label>
+                    <textarea id="script" name="script" rows="6" class="shadow-sm focus:ring-blue-500 focus:border-blue-500 mt-1 block w-full sm:text-sm border border-gray-300 rounded-md p-2" placeholder="Enter your script here... Each sentence or short phrase will be treated as a scene." required></textarea>
+                </div>
+
+                <div class="mb-6">
+                    <label for="aspect_ratio" class="block text-sm font-medium text-gray-700 mb-2">Aspect Ratio</label>
+                    <select id="aspect_ratio" name="aspect_ratio" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+                        <option value="9:16">9:16 (Shorts/Reels)</option>
+                        <option value="16:9">16:9 (YouTube)</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center">
+                    <button type="submit" id="generateBtn" class="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        Generate Video
+                    </button>
+                    <div id="loadingIndicator" class="hidden ml-4 flex items-center text-blue-600">
+                        <div class="loader mr-2"></div>
+                        Generating... (This may take a few minutes)
+                    </div>
+                </div>
+            </form>
+
+            <div id="errorBox" class="hidden mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-md">
+            </div>
+        </div>
+
+        <div id="resultSection" class="bg-white shadow rounded-lg p-6 hidden">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Generated Video</h2>
+            <div class="flex justify-center mb-4">
+                <video id="videoPlayer" controls class="max-h-96 w-auto border rounded bg-black">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+            <div class="text-center">
+                <a id="downloadLink" href="#" download class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    Download MP4
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('videoForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const scriptText = document.getElementById('script').value;
+            const aspectRatio = document.getElementById('aspect_ratio').value;
+            const generateBtn = document.getElementById('generateBtn');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const resultSection = document.getElementById('resultSection');
+            const errorBox = document.getElementById('errorBox');
+            const videoPlayer = document.getElementById('videoPlayer');
+            const downloadLink = document.getElementById('downloadLink');
+
+            // Reset UI
+            errorBox.classList.add('hidden');
+            resultSection.classList.add('hidden');
+            generateBtn.disabled = true;
+            generateBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            loadingIndicator.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        script: scriptText,
+                        aspect_ratio: aspectRatio
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'An error occurred during generation.');
+                }
+
+                // Success
+                videoPlayer.src = data.video_url;
+                downloadLink.href = data.video_url;
+                resultSection.classList.remove('hidden');
+            } catch (error) {
+                errorBox.textContent = error.message;
+                errorBox.classList.remove('hidden');
+            } finally {
+                generateBtn.disabled = false;
+                generateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                loadingIndicator.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>

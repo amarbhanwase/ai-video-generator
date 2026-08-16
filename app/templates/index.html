@@ -32,8 +32,10 @@
     <div class="max-w-4xl mx-auto py-10 px-4 sm:px-6 lg:px-8">
         <h1 class="text-3xl font-extrabold text-center text-gray-900 mb-8">AI Script-to-Video Generator</h1>
 
-        <div class="bg-white shadow rounded-lg p-6 mb-8">
-            <form id="videoForm">
+        <!-- Step 1: Upload and Match -->
+        <div id="step1" class="bg-white shadow rounded-lg p-6 mb-8">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Step 1: Upload Script & Bulk Images</h2>
+            <form id="uploadForm">
                 <div class="mb-4">
                     <label for="script" class="block text-sm font-medium text-gray-700 mb-2">Video Script</label>
                     <textarea id="script" name="script" rows="6" class="shadow-sm focus:ring-blue-500 focus:border-blue-500 mt-1 block w-full sm:text-sm border border-gray-300 rounded-md p-2" placeholder="Enter your script here... Each sentence or short phrase will be treated as a scene." required></textarea>
@@ -47,23 +49,63 @@
                     </select>
                 </div>
 
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Bulk Images</label>
+                    <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
+                        <div class="space-y-1 text-center">
+                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                            <div class="flex text-sm text-gray-600 justify-center">
+                                <label for="bulk_images" class="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                                    <span>Upload files</span>
+                                    <input id="bulk_images" name="bulk_images" type="file" multiple class="sr-only" accept="image/*" required>
+                                </label>
+                                <p class="pl-1">or drag and drop</p>
+                            </div>
+                            <p class="text-xs text-gray-500">PNG, JPG, GIF up to 10MB each</p>
+                        </div>
+                    </div>
+                    <div id="fileList" class="mt-2 text-sm text-gray-600"></div>
+                </div>
+
                 <div class="flex items-center">
-                    <button type="submit" id="generateBtn" class="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                        Generate Video
+                    <button type="submit" id="matchBtn" class="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        Match Images using AI
                     </button>
-                    <div id="loadingIndicator" class="hidden ml-4 flex items-center text-blue-600">
+                    <div id="matchLoading" class="hidden ml-4 flex items-center text-blue-600">
                         <div class="loader mr-2"></div>
-                        Generating... (This may take a few minutes)
+                        Analyzing...
                     </div>
                 </div>
             </form>
-
-            <div id="errorBox" class="hidden mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-md">
-            </div>
+            <div id="uploadError" class="hidden mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-md"></div>
         </div>
 
-        <div id="resultSection" class="bg-white shadow rounded-lg p-6 hidden">
-            <h2 class="text-xl font-bold text-gray-900 mb-4">Generated Video</h2>
+        <!-- Step 2: Mapping Grid -->
+        <div id="step2" class="bg-white shadow rounded-lg p-6 mb-8 hidden">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Step 2: AI Scene Mapping</h2>
+            <p class="text-sm text-gray-600 mb-4">Review the AI's image assignments. You can manually adjust them if needed before rendering the final video.</p>
+
+            <div id="mappingGrid" class="space-y-4 mb-6">
+                <!-- JavaScript will populate this -->
+            </div>
+
+            <div class="flex items-center">
+                <button type="button" id="renderBtn" class="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    Render Final Video
+                </button>
+                <div id="renderLoading" class="hidden ml-4 flex items-center text-green-600">
+                    <div class="loader mr-2"></div>
+                    Generating Video...
+                </div>
+            </div>
+            <div id="renderError" class="hidden mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-md"></div>
+        </div>
+
+        <!-- Step 3: Result -->
+        <div id="step3" class="bg-white shadow rounded-lg p-6 hidden">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Step 3: Final Video</h2>
             <div class="flex justify-center mb-4">
                 <video id="videoPlayer" controls class="max-h-96 w-auto border rounded bg-black">
                     Your browser does not support the video tag.
@@ -78,54 +120,177 @@
     </div>
 
     <script>
-        document.getElementById('videoForm').addEventListener('submit', async (e) => {
+        let currentScenes = [];
+        let currentAspectRatio = "16:9";
+
+        // Handle File Input Display
+        document.getElementById('bulk_images').addEventListener('change', function(e) {
+            const fileList = document.getElementById('fileList');
+            if (this.files.length > 0) {
+                fileList.textContent = `${this.files.length} images selected.`;
+            } else {
+                fileList.textContent = '';
+            }
+        });
+
+        // Step 1: Upload and Match
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
+            const form = e.target;
+            const formData = new FormData();
+
             const scriptText = document.getElementById('script').value;
-            const aspectRatio = document.getElementById('aspect_ratio').value;
-            const generateBtn = document.getElementById('generateBtn');
-            const loadingIndicator = document.getElementById('loadingIndicator');
-            const resultSection = document.getElementById('resultSection');
-            const errorBox = document.getElementById('errorBox');
+            currentAspectRatio = document.getElementById('aspect_ratio').value;
+            const fileInput = document.getElementById('bulk_images');
+
+            formData.append('script', scriptText);
+            formData.append('aspect_ratio', currentAspectRatio);
+
+            for (let i = 0; i < fileInput.files.length; i++) {
+                formData.append('images', fileInput.files[i]);
+            }
+
+            const matchBtn = document.getElementById('matchBtn');
+            const matchLoading = document.getElementById('matchLoading');
+            const uploadError = document.getElementById('uploadError');
+
+            uploadError.classList.add('hidden');
+            matchBtn.disabled = true;
+            matchBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            matchLoading.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/match_images', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'An error occurred during matching.');
+                }
+
+                currentScenes = data.matched_scenes;
+                renderMappingGrid();
+
+                // Hide Step 1 slightly, show Step 2
+                document.getElementById('step2').classList.remove('hidden');
+
+            } catch (error) {
+                uploadError.textContent = error.message;
+                uploadError.classList.remove('hidden');
+            } finally {
+                matchBtn.disabled = false;
+                matchBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                matchLoading.classList.add('hidden');
+            }
+        });
+
+        function renderMappingGrid() {
+            const grid = document.getElementById('mappingGrid');
+            grid.innerHTML = '';
+
+            // Collect all unique images uploaded for dropdown options
+            const uniqueImages = [...new Set(currentScenes.map(s => s.image))];
+
+            currentScenes.forEach((scene, index) => {
+                const item = document.createElement('div');
+                item.className = 'flex items-start p-4 border rounded-md bg-gray-50';
+
+                // Image preview & selector
+                const imgContainer = document.createElement('div');
+                imgContainer.className = 'flex-shrink-0 w-32 mr-4';
+
+                const img = document.createElement('img');
+                // Path comes from backend (e.g. app/outputs/...) - format for web viewing
+                img.src = scene.image.replace('app/', '/');
+                img.className = 'w-full h-auto rounded border';
+
+                const select = document.createElement('select');
+                select.className = 'mt-2 block w-full text-xs border-gray-300 rounded-md';
+                uniqueImages.forEach((imgSrc, imgIndex) => {
+                    const opt = document.createElement('option');
+                    opt.value = imgSrc;
+                    opt.text = `Image ${imgIndex + 1}`;
+                    if (imgSrc === scene.image) opt.selected = true;
+                    select.appendChild(opt);
+                });
+
+                select.addEventListener('change', (e) => {
+                    currentScenes[index].image = e.target.value;
+                    img.src = e.target.value.replace('app/', '/');
+                });
+
+                imgContainer.appendChild(img);
+                imgContainer.appendChild(select);
+
+                // Text info
+                const textContainer = document.createElement('div');
+                textContainer.className = 'flex-grow';
+
+                const badge = document.createElement('span');
+                badge.className = `inline-block px-2 py-1 text-xs font-semibold rounded-full mb-2 ${scene.source === 'ai' ? 'bg-purple-100 text-purple-800' : 'bg-gray-200 text-gray-800'}`;
+                badge.textContent = scene.source === 'ai' ? 'AI Matched' : 'Fallback Matched';
+
+                const text = document.createElement('p');
+                text.className = 'text-sm text-gray-800 italic';
+                text.textContent = `"${scene.text}"`;
+
+                textContainer.appendChild(badge);
+                textContainer.appendChild(text);
+
+                item.appendChild(imgContainer);
+                item.appendChild(textContainer);
+                grid.appendChild(item);
+            });
+        }
+
+        // Step 2: Render Video
+        document.getElementById('renderBtn').addEventListener('click', async () => {
+            const renderBtn = document.getElementById('renderBtn');
+            const renderLoading = document.getElementById('renderLoading');
+            const renderError = document.getElementById('renderError');
+            const step3 = document.getElementById('step3');
             const videoPlayer = document.getElementById('videoPlayer');
             const downloadLink = document.getElementById('downloadLink');
 
-            // Reset UI
-            errorBox.classList.add('hidden');
-            resultSection.classList.add('hidden');
-            generateBtn.disabled = true;
-            generateBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            loadingIndicator.classList.remove('hidden');
+            renderError.classList.add('hidden');
+            step3.classList.add('hidden');
+            renderBtn.disabled = true;
+            renderBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            renderLoading.classList.remove('hidden');
 
             try {
-                const response = await fetch('/generate', {
+                const response = await fetch('/render_video', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        script: scriptText,
-                        aspect_ratio: aspectRatio
+                        scenes: currentScenes,
+                        aspect_ratio: currentAspectRatio
                     })
                 });
 
                 const data = await response.json();
 
                 if (!response.ok) {
-                    throw new Error(data.detail || 'An error occurred during generation.');
+                    throw new Error(data.detail || 'An error occurred during rendering.');
                 }
 
                 // Success
                 videoPlayer.src = data.video_url;
                 downloadLink.href = data.video_url;
-                resultSection.classList.remove('hidden');
+                step3.classList.remove('hidden');
             } catch (error) {
-                errorBox.textContent = error.message;
-                errorBox.classList.remove('hidden');
+                renderError.textContent = error.message;
+                renderError.classList.remove('hidden');
             } finally {
-                generateBtn.disabled = false;
-                generateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-                loadingIndicator.classList.add('hidden');
+                renderBtn.disabled = false;
+                renderBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                renderLoading.classList.add('hidden');
             }
         });
     </script>

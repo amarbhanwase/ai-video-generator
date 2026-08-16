@@ -9,11 +9,14 @@ import asyncio
 import edge_tts
 from PIL import Image
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
+from fastapi import File, UploadFile, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from typing import List
+from typing import List, Dict, Any
 from dotenv import load_dotenv
+from google import genai
+import json
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -31,8 +34,8 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 templates = Jinja2Templates(directory="app/templates")
 
-class VideoRequest(BaseModel):
-    script: str
+class RenderRequest(BaseModel):
+    scenes: List[Dict[str, Any]]
     aspect_ratio: str
 
 def parse_script(script: str) -> List[str]:
@@ -102,73 +105,53 @@ def process_and_save_image(image_bytes: bytes, output_path: str, target_width: i
     img = img.convert("RGB")
 
     # Save the processed image
-    img.save(output_path, format="PNG")
+    img.save(output_path, format="JPEG")
 
-def generate_image(scene_text: str, index: int, job_id: str, aspect_ratio: str) -> str:
+async def map_images_to_scenes(scenes: List[str], image_paths: List[str]) -> List[Dict[str, Any]]:
     """
-    Generates an image for a scene using Pollinations.ai API with retries and timeout=60.
-    Falls back to Unsplash/LoremFlickr stock photos if Pollinations fails.
-    Ensures downloaded images are properly resized and cropped to the aspect ratio.
+    Uses Gemini 1.5 Flash multimodal to match uploaded images to parsed scenes.
+    Falls back to round-robin if the API fails or is not configured.
     """
-    output_path = f"app/outputs/{job_id}_{index}.png"
-    width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
+    mapped = []
 
-    # Basic keyword extraction for fallback stock images (just grab first long word or two)
-    words = [w for w in re.sub(r'[^a-zA-Z\s]', '', scene_text).split() if len(w) > 3]
-    keyword = words[0] if words else "nature"
-
-    success = False
-
-    # 1. Try Pollinations API with turbo model for dynamic high-paced images
-    prompt = f"Cinematic, high quality, highly detailed scene: {scene_text}"
-    encoded_prompt = urllib.parse.quote(prompt)
-    pollinations_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true&model=turbo"
-
-    for attempt in range(3):
+    # 1. Check API Key and capabilities
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if api_key and api_key != "your_gemini_api_key_here":
         try:
-            print(f"Fetching image from Pollinations (attempt {attempt+1})...")
-            response = requests.get(pollinations_url, timeout=60)
-            response.raise_for_status()
+            client = genai.Client(api_key=api_key)
 
-            # Process and save
-            process_and_save_image(response.content, output_path, width, height)
-            success = True
-            break
+            # Prepare payload: send all images and the list of scenes
+            contents = ["Please analyze these images and match exactly ONE image to each of the following scenes. Return a JSON array of integers, where the integer at index i is the 0-based index of the image that best matches scene i. You can reuse images if there are more scenes than images.\n\nScenes:\n" + "\n".join([f"{i}. {s}" for i,s in enumerate(scenes)])]
+
+            for path in image_paths:
+                img = Image.open(path)
+                contents.append(img)
+
+            response = client.models.generate_content(
+                model='gemini-1.5-flash',
+                contents=contents,
+                config=dict(
+                    response_mime_type="application/json",
+                )
+            )
+
+            mapping = json.loads(response.text)
+
+            # Verify mapping length matches scene length
+            if len(mapping) == len(scenes):
+                for i, scene in enumerate(scenes):
+                    img_idx = int(mapping[i]) % len(image_paths) # ensure bounds
+                    mapped.append({"text": scene, "image": image_paths[img_idx], "source": "ai"})
+                return mapped
+
         except Exception as e:
-            print(f"Pollinations attempt {attempt+1} failed: {e}")
-            if attempt < 2:
-                time.sleep(2) # brief pause before retry
+            print(f"AI Mapping failed, falling back to round-robin: {e}")
 
-    # 2. Fast Fallback: Random Stock Photo API
-    if not success:
-        print("Falling back to stock photo...")
-        fallback_urls = [
-            # LoremFlickr (highly reliable stock photo alternative)
-            f"https://loremflickr.com/{width}/{height}/{keyword},cinematic/all",
-            # Picsum (random stock photos)
-            f"https://picsum.photos/{width}/{height}"
-        ]
+    # 2. Fallback: Round-robin distribution
+    for i, scene in enumerate(scenes):
+        mapped.append({"text": scene, "image": image_paths[i % len(image_paths)], "source": "fallback"})
 
-        for fb_url in fallback_urls:
-            try:
-                print(f"Fetching fallback from {fb_url}...")
-                response = requests.get(fb_url, timeout=15)
-                response.raise_for_status()
-
-                # Process and save
-                process_and_save_image(response.content, output_path, width, height)
-                success = True
-                break
-            except Exception as e:
-                print(f"Fallback {fb_url} failed: {e}")
-
-    # 3. Last Resort Absolute Fallback (should theoretically never happen now)
-    if not success:
-        print("All image sources failed. Using last-resort generated fallback.")
-        img = Image.new('RGB', (width, height), color = (random.randint(0,255), random.randint(0,255), random.randint(0,255)))
-        img.save(output_path)
-
-    return output_path
+    return mapped
 
 def create_video(job_id: str, image_paths: List[str], audio_paths: List[str], aspect_ratio: str) -> str:
     """
@@ -276,43 +259,74 @@ def create_video(job_id: str, image_paths: List[str], audio_paths: List[str], as
 async def read_root(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
 
-@app.post("/generate")
-async def generate_video_endpoint(req: VideoRequest):
-    script = req.script
-    aspect_ratio = req.aspect_ratio
-
+@app.post("/match_images")
+async def match_images_endpoint(
+    script: str = Form(...),
+    aspect_ratio: str = Form(...),
+    images: List[UploadFile] = File(...)
+):
     if not script:
         raise HTTPException(status_code=400, detail="Script is empty")
-    if aspect_ratio not in ["16:9", "9:16"]:
-        raise HTTPException(status_code=400, detail="Invalid aspect ratio")
+    if not images:
+        raise HTTPException(status_code=400, detail="No images uploaded")
 
+    job_id = str(uuid.uuid4())[:8]
+
+    # 1. Parse Script
     scenes = parse_script(script)
     if not scenes:
         raise HTTPException(status_code=400, detail="Could not parse scenes from script")
 
+    # 2. Save uploaded images locally, resize them to target aspect ratio
+    saved_image_paths = []
+    width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
+
+    for i, img in enumerate(images):
+        raw_path = f"app/outputs/{job_id}_upload_{i}.jpg"
+        content = await img.read()
+        process_and_save_image(content, raw_path, width, height)
+        saved_image_paths.append(raw_path)
+
+    # 3. AI Match
+    matched_scenes = await map_images_to_scenes(scenes, saved_image_paths)
+
+    # Send back the mapping so UI can display it
+    return {
+        "status": "success",
+        "job_id": job_id,
+        "matched_scenes": matched_scenes
+    }
+
+@app.post("/render_video")
+async def render_video_endpoint(req: RenderRequest):
+    scenes = req.scenes
+    aspect_ratio = req.aspect_ratio
+
+    if not scenes:
+        raise HTTPException(status_code=400, detail="Scenes data is empty")
+
     job_id = str(uuid.uuid4())[:8]
 
-    # 1. Generate Audio and Images for each scene
     audio_paths = []
     image_paths = []
-    for i, scene in enumerate(scenes):
-        # We must await the new async generate_audio
-        audio_path = await generate_audio(scene, i, job_id)
+
+    for i, scene_data in enumerate(scenes):
+        scene_text = scene_data.get("text", "")
+        img_path = scene_data.get("image", "")
+
+        # 1. Generate Voiceover
+        audio_path = await generate_audio(scene_text, i, job_id)
         audio_paths.append(audio_path)
+        image_paths.append(img_path)
 
-        image_path = generate_image(scene, i, job_id, aspect_ratio)
-        image_paths.append(image_path)
-
-    # 2. Stitch Video
+    # 2. Stitch Video using existing MoviePy logic
     final_video_path = create_video(job_id, image_paths, audio_paths, aspect_ratio)
 
-    # Clean up the path for the web response
     video_url = f"/{final_video_path.replace('app/', '')}" if final_video_path.startswith("app/") else final_video_path
 
     return {
         "status": "success",
-        "video_url": video_url,
-        "scenes_parsed": len(scenes)
+        "video_url": video_url
     }
 
 if __name__ == "__main__":

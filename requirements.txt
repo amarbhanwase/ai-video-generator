@@ -7,3 +7,4 @@ pillow
 edge-tts
 python-dotenv
 requests
+google-genai

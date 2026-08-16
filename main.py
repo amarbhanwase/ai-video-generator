@@ -10,6 +10,7 @@ import edge_tts
 from PIL import Image
 from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
 from fastapi import File, UploadFile, Form
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -107,56 +108,91 @@ def process_and_save_image(image_bytes: bytes, output_path: str, target_width: i
     # Save the processed image
     img.save(output_path, format="JPEG")
 
-async def map_images_to_scenes(scenes: List[str], image_paths: List[str]) -> List[Dict[str, Any]]:
+def parse_script_with_ai(script: str) -> List[Dict[str, str]]:
     """
-    Uses Gemini 1.5 Flash multimodal to match uploaded images to parsed scenes.
-    Falls back to round-robin if the API fails or is not configured.
+    Uses Gemini 1.5 Flash to split the script into 2-4 second scenes
+    and generates detailed photographic image prompts for each.
     """
-    mapped = []
-
-    # 1. Check API Key and capabilities
     api_key = os.environ.get("GOOGLE_API_KEY")
-    if api_key and api_key != "your_gemini_api_key_here":
-        try:
-            client = genai.Client(api_key=api_key)
 
-            # Prepare payload: send all images and the list of scenes
-            contents = ["Please analyze these images and match exactly ONE image to each of the following scenes. Return a JSON array of integers, where the integer at index i is the 0-based index of the image that best matches scene i. You can reuse images if there are more scenes than images.\n\nScenes:\n" + "\n".join([f"{i}. {s}" for i,s in enumerate(scenes)])]
+    # Basic fallback if no API key
+    if not api_key or api_key == "your_gemini_api_key_here":
+        raw_scenes = parse_script(script) # the old basic chunking
+        return [{"text": s, "prompt": f"Cinematic scene for: {s}"} for s in raw_scenes]
 
-            for path in image_paths:
-                img = Image.open(path)
-                contents.append(img)
+    try:
+        client = genai.Client(api_key=api_key)
 
-            response = client.models.generate_content(
-                model='gemini-1.5-flash',
-                contents=contents,
-                config=dict(
-                    response_mime_type="application/json",
-                )
+        system_instruction = """
+        You are a director and AI prompt engineer. Break the provided script into chronological scenes.
+        Each scene should be short (about 2-4 seconds of speaking time).
+        For each scene, write the exact script text, and generate a highly detailed, photographic Google Flow / Midjourney style image prompt.
+        Return the result EXACTLY as a JSON array of objects with keys 'text' and 'prompt'.
+        """
+
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=[system_instruction, f"Script:\n{script}"],
+            config=dict(
+                response_mime_type="application/json",
             )
+        )
 
-            mapping = json.loads(response.text)
+        data = json.loads(response.text)
+        # Ensure it's a list
+        if isinstance(data, list) and all(isinstance(item, dict) and 'text' in item and 'prompt' in item for item in data):
+            return data
 
-            # Verify mapping length matches scene length
-            if len(mapping) == len(scenes):
-                for i, scene in enumerate(scenes):
-                    img_idx = int(mapping[i]) % len(image_paths) # ensure bounds
-                    mapped.append({"text": scene, "image": image_paths[img_idx], "source": "ai"})
-                return mapped
+        raise ValueError("Invalid JSON format from AI")
 
-        except Exception as e:
-            print(f"AI Mapping failed, falling back to round-robin: {e}")
+    except Exception as e:
+        print(f"AI Scene generation failed, using basic parse: {e}")
+        raw_scenes = parse_script(script)
+        return [{"text": s, "prompt": f"Cinematic scene for: {s}"} for s in raw_scenes]
 
-    # 2. Fallback: Round-robin distribution
-    for i, scene in enumerate(scenes):
-        mapped.append({"text": scene, "image": image_paths[i % len(image_paths)], "source": "fallback"})
+def create_dynamic_frame(t, duration, width, height, base_w, base_h, effect_type, img_clip):
+    """
+    Helper function to dynamically crop and scale an image frame for Ken Burns effects.
+    This avoids Python closure late-binding bugs in loops.
+    """
+    progress = t / duration
+    import numpy as np
 
-    return mapped
+    if effect_type == 0:
+        # Zoom-out: Start cropped (zoomed in), expand to full view
+        current_w = width * (1.0 + 0.1 * (1.0 - progress))
+        current_h = height * (1.0 + 0.1 * (1.0 - progress))
+        x_center = base_w / 2
+        y_center = base_h / 2
+    elif effect_type == 1:
+        # Zoom-in: Start full view, shrink crop window (zoom in) over time
+        current_w = width * (1.0 + 0.1 * progress)
+        current_h = height * (1.0 + 0.1 * progress)
+        x_center = base_w / 2
+        y_center = base_h / 2
+    else:
+        # Pan-left: Crop window moves from right to left
+        current_w = width
+        current_h = height
+        start_x = base_w - (width / 2)
+        end_x = width / 2
+        x_center = start_x + (end_x - start_x) * progress
+        y_center = base_h / 2
+
+    x1 = int(x_center - current_w / 2)
+    y1 = int(y_center - current_h / 2)
+
+    frame = img_clip.get_frame(t)
+    cropped = frame[y1:y1+int(current_h), x1:x1+int(current_w)]
+
+    pil_img = Image.fromarray(cropped)
+    final_img = pil_img.resize((width, height), Image.Resampling.LANCZOS)
+    return np.array(final_img)
 
 def create_video(job_id: str, image_paths: List[str], audio_paths: List[str], aspect_ratio: str) -> str:
     """
     Stitches images and audio into a final video using MoviePy.
-    Applies a simple zoom (Ken Burns) effect to images.
+    Applies dynamic Ken Burns effect to images.
     """
     output_path = f"app/outputs/{job_id}_final.mp4"
 
@@ -168,63 +204,23 @@ def create_video(job_id: str, image_paths: List[str], audio_paths: List[str], as
             img_path = image_paths[i]
             aud_path = audio_paths[i]
 
-            # Load audio to get duration
             try:
-                # Need a fallback duration if audio is mocked and unreadable
                 audio_clip = AudioFileClip(aud_path)
                 duration = audio_clip.duration
             except Exception:
-                duration = 2.0 # Mock fallback duration
+                duration = 2.0
                 audio_clip = None
 
-            # Dynamic pan-zoom (Ken Burns effect) in MoviePy v2
-            # 1. Load image and set the duration
             img_clip = ImageClip(img_path).with_duration(duration)
-
-            # 2. Resize to a larger resolution first so we have room to zoom/crop without black bars
-            # To zoom by 10% (scale 1.1x), we first resize to (width * 1.1, height * 1.1)
             base_w, base_h = int(width * 1.1), int(height * 1.1)
             img_clip = img_clip.resized(new_size=(base_w, base_h))
 
-            # 3. Create dynamic alternating crop effects
-            # We will rotate between zoom-out, zoom-in, and pan-left
             effect_type = i % 3
 
-            def make_frame_dynamic(t):
-                progress = t / duration
-                import numpy as np
-
-                if effect_type == 0:
-                    # Zoom-out: Start cropped (zoomed in), expand to full view
-                    current_w = width * (1.0 + 0.1 * (1.0 - progress))
-                    current_h = height * (1.0 + 0.1 * (1.0 - progress))
-                    x_center = base_w / 2
-                    y_center = base_h / 2
-                elif effect_type == 1:
-                    # Zoom-in: Start full view, shrink crop window (zoom in) over time
-                    current_w = width * (1.0 + 0.1 * progress)
-                    current_h = height * (1.0 + 0.1 * progress)
-                    x_center = base_w / 2
-                    y_center = base_h / 2
-                else:
-                    # Pan-left: Crop window moves from right to left
-                    current_w = width
-                    current_h = height
-                    # x_center goes from right bound to left bound
-                    start_x = base_w - (width / 2)
-                    end_x = width / 2
-                    x_center = start_x + (end_x - start_x) * progress
-                    y_center = base_h / 2
-
-                x1 = int(x_center - current_w / 2)
-                y1 = int(y_center - current_h / 2)
-
-                frame = img_clip.get_frame(t)
-                cropped = frame[y1:y1+int(current_h), x1:x1+int(current_w)]
-
-                pil_img = Image.fromarray(cropped)
-                final_img = pil_img.resize((width, height), Image.Resampling.LANCZOS)
-                return np.array(final_img)
+            # Use default arguments to bind loop variables to the lambda closure immediately
+            make_frame_dynamic = lambda t, dur=duration, ef=effect_type, clip=img_clip: create_dynamic_frame(
+                t, dur, width, height, base_w, base_h, ef, clip
+            )
 
             from moviepy.video.VideoClip import VideoClip
             dynamic_clip = VideoClip(make_frame_dynamic, duration=duration)
@@ -237,7 +233,6 @@ def create_video(job_id: str, image_paths: List[str], audio_paths: List[str], as
         if not clips:
             raise Exception("No clips to stitch")
 
-        # Hard cuts provide the fast pacing for Shorts/Reels
         final_video = concatenate_videoclips(clips, method="chain")
         final_video.write_videofile(
             output_path,
@@ -252,57 +247,79 @@ def create_video(job_id: str, image_paths: List[str], audio_paths: List[str], as
         return output_path
     except Exception as e:
         print(f"Error creating video: {str(e)}")
-        # In case of failure (like missing ffmpeg or corrupted mocks), return the dummy
         return "/outputs/mock.mp4"
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
 
-@app.post("/match_images")
-async def match_images_endpoint(
-    script: str = Form(...),
-    aspect_ratio: str = Form(...),
-    images: List[UploadFile] = File(...)
-):
-    if not script:
+class AnalyzeRequest(BaseModel):
+    script: str
+    aspect_ratio: str
+
+@app.post("/analyze_script")
+async def analyze_script_endpoint(req: AnalyzeRequest):
+    if not req.script:
         raise HTTPException(status_code=400, detail="Script is empty")
-    if not images:
-        raise HTTPException(status_code=400, detail="No images uploaded")
 
+    scenes = parse_script_with_ai(req.script)
+    return {"scenes": scenes}
+
+import urllib.parse
+import requests
+
+@app.post("/generate_scene_image")
+async def generate_scene_image_endpoint(
+    prompt: str = Form(...),
+    aspect_ratio: str = Form(...)
+):
     job_id = str(uuid.uuid4())[:8]
-
-    # 1. Parse Script
-    scenes = parse_script(script)
-    if not scenes:
-        raise HTTPException(status_code=400, detail="Could not parse scenes from script")
-
-    # 2. Save uploaded images locally, resize them to target aspect ratio
-    saved_image_paths = []
+    output_path = f"app/outputs/{job_id}_pollinations.jpg"
     width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
 
-    for i, img in enumerate(images):
-        raw_path = f"app/outputs/{job_id}_upload_{i}.jpg"
-        content = await img.read()
-        process_and_save_image(content, raw_path, width, height)
-        saved_image_paths.append(raw_path)
+    encoded_prompt = urllib.parse.quote(prompt)
+    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true&model=turbo"
 
-    # 3. AI Match
-    matched_scenes = await map_images_to_scenes(scenes, saved_image_paths)
+    try:
+        response = requests.get(url, timeout=60)
+        response.raise_for_status()
+        process_and_save_image(response.content, output_path, width, height)
+        return {"image_url": f"/{output_path.replace('app/', '')}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # Send back the mapping so UI can display it
-    return {
-        "status": "success",
-        "job_id": job_id,
-        "matched_scenes": matched_scenes
-    }
+@app.post("/upload_scene_image")
+async def upload_scene_image_endpoint(
+    aspect_ratio: str = Form(...),
+    file: UploadFile = File(...)
+):
+    job_id = str(uuid.uuid4())[:8]
+    output_path = f"app/outputs/{job_id}_upload.jpg"
+    width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
+
+    try:
+        content = await file.read()
+        process_and_save_image(content, output_path, width, height)
+        return {"image_url": f"/{output_path.replace('app/', '')}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class RenderRequestV2(BaseModel):
+    scenes: List[Dict[str, Any]]
+    aspect_ratio: str
+    audio_type: str # 'male', 'female', 'custom'
 
 @app.post("/render_video")
-async def render_video_endpoint(req: RenderRequest):
-    scenes = req.scenes
-    aspect_ratio = req.aspect_ratio
+async def render_video_endpoint(
+    aspect_ratio: str = Form(...),
+    audio_type: str = Form(...),
+    scenes: str = Form(...), # JSON string
+    custom_audio: UploadFile = File(None)
+):
+    import json
+    scenes_data = json.loads(scenes)
 
-    if not scenes:
+    if not scenes_data:
         raise HTTPException(status_code=400, detail="Scenes data is empty")
 
     job_id = str(uuid.uuid4())[:8]
@@ -310,17 +327,84 @@ async def render_video_endpoint(req: RenderRequest):
     audio_paths = []
     image_paths = []
 
-    for i, scene_data in enumerate(scenes):
-        scene_text = scene_data.get("text", "")
-        img_path = scene_data.get("image", "")
+    # Format image paths correctly from URL back to local path
+    for s in scenes_data:
+        if not s.get("image_url"):
+            raise HTTPException(status_code=400, detail="Not all scenes have images")
+        # map web url "/outputs/..." to local path "app/outputs/..."
+        local_path = "app" + s["image_url"] if s["image_url"].startswith("/outputs") else s["image_url"]
+        image_paths.append(local_path)
 
-        # 1. Generate Voiceover
-        audio_path = await generate_audio(scene_text, i, job_id)
-        audio_paths.append(audio_path)
-        image_paths.append(img_path)
+    if audio_type in ['male', 'female']:
+        voice = "hi-IN-MadhurNeural" if audio_type == 'male' else "hi-IN-SwaraNeural"
+        for i, scene_data in enumerate(scenes_data):
+            text = scene_data.get("text", "")
+            out_path = f"app/outputs/{job_id}_{i}.mp3"
 
-    # 2. Stitch Video using existing MoviePy logic
-    final_video_path = create_video(job_id, image_paths, audio_paths, aspect_ratio)
+            communicate = edge_tts.Communicate(text, voice)
+            await communicate.save(out_path)
+            audio_paths.append(out_path)
+
+        final_video_path = await run_in_threadpool(create_video, job_id, image_paths, audio_paths, aspect_ratio)
+
+    elif audio_type == 'custom':
+        if not custom_audio:
+            raise HTTPException(status_code=400, detail="Custom audio file required")
+
+        # Save custom audio
+        master_audio_path = f"app/outputs/{job_id}_master.mp3"
+        with open(master_audio_path, "wb") as f:
+            f.write(await custom_audio.read())
+
+        # For custom audio, we create silent clips proportional to word counts
+        # Then we attach the master audio at the end.
+
+        # Calculate relative duration based on word count
+        word_counts = [max(len(s.get("text", "").split()), 1) for s in scenes_data]
+        total_words = sum(word_counts)
+
+        from moviepy import AudioFileClip
+        master_clip = AudioFileClip(master_audio_path)
+        total_duration = master_clip.duration
+        master_clip.close()
+
+        durations = [(wc / total_words) * total_duration for wc in word_counts]
+
+        clips = []
+        width, height = (1080, 1920) if aspect_ratio == "9:16" else (1920, 1080)
+        base_w, base_h = int(width * 1.1), int(height * 1.1)
+
+        for i in range(len(image_paths)):
+            img_clip = ImageClip(image_paths[i]).with_duration(durations[i])
+            img_clip = img_clip.resized(new_size=(base_w, base_h))
+
+            effect_type = i % 3
+            make_frame_dynamic = lambda t, dur=durations[i], ef=effect_type, clip=img_clip: create_dynamic_frame(
+                t, dur, width, height, base_w, base_h, ef, clip
+            )
+
+            from moviepy.video.VideoClip import VideoClip
+            dynamic_clip = VideoClip(make_frame_dynamic, duration=durations[i])
+            clips.append(dynamic_clip)
+
+        final_video = concatenate_videoclips(clips, method="chain")
+        master_audio_clip = AudioFileClip(master_audio_path)
+        final_video = final_video.with_audio(master_audio_clip)
+
+        final_video_path = f"app/outputs/{job_id}_final.mp4"
+
+        def write_vid():
+            final_video.write_videofile(
+                final_video_path,
+                fps=24,
+                codec="libx264",
+                audio_codec="aac",
+                preset="ultrafast",
+                threads=4,
+                logger=None
+            )
+
+        await run_in_threadpool(write_vid)
 
     video_url = f"/{final_video_path.replace('app/', '')}" if final_video_path.startswith("app/") else final_video_path
 

@@ -3,23 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Video Generator</title>
+    <title>AI 2-Step Video Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .loader {
             border: 4px solid #f3f3f3;
             border-radius: 50%;
             border-top: 4px solid #3498db;
-            width: 30px;
-            height: 30px;
-            -webkit-animation: spin 2s linear infinite; /* Safari */
+            width: 20px;
+            height: 20px;
+            -webkit-animation: spin 2s linear infinite;
             animation: spin 2s linear infinite;
-        }
-
-        /* Safari */
-        @-webkit-keyframes spin {
-            0% { -webkit-transform: rotate(0deg); }
-            100% { -webkit-transform: rotate(360deg); }
         }
 
         @keyframes spin {
@@ -29,75 +23,79 @@
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 font-sans antialiased min-h-screen">
-    <div class="max-w-4xl mx-auto py-10 px-4 sm:px-6 lg:px-8">
-        <h1 class="text-3xl font-extrabold text-center text-gray-900 mb-8">AI Script-to-Video Generator</h1>
+    <div class="max-w-5xl mx-auto py-10 px-4 sm:px-6 lg:px-8">
+        <h1 class="text-3xl font-extrabold text-center text-gray-900 mb-8">AI 2-Step Dynamic Video Studio</h1>
 
-        <!-- Step 1: Upload and Match -->
+        <!-- Step 1: Input -->
         <div id="step1" class="bg-white shadow rounded-lg p-6 mb-8">
-            <h2 class="text-xl font-bold text-gray-900 mb-4">Step 1: Upload Script & Bulk Images</h2>
-            <form id="uploadForm">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Step 1: Story Input & Breakdown</h2>
+            <form id="analyzeForm">
                 <div class="mb-4">
-                    <label for="script" class="block text-sm font-medium text-gray-700 mb-2">Video Script</label>
-                    <textarea id="script" name="script" rows="6" class="shadow-sm focus:ring-blue-500 focus:border-blue-500 mt-1 block w-full sm:text-sm border border-gray-300 rounded-md p-2" placeholder="Enter your script here... Each sentence or short phrase will be treated as a scene." required></textarea>
+                    <label for="script" class="block text-sm font-medium text-gray-700 mb-2">Story / Script</label>
+                    <textarea id="script" name="script" rows="6" class="shadow-sm focus:ring-blue-500 focus:border-blue-500 mt-1 block w-full sm:text-sm border border-gray-300 rounded-md p-2" placeholder="Paste your story in Hindi or English here..." required></textarea>
                 </div>
 
                 <div class="mb-6">
                     <label for="aspect_ratio" class="block text-sm font-medium text-gray-700 mb-2">Aspect Ratio</label>
                     <select id="aspect_ratio" name="aspect_ratio" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
                         <option value="9:16">9:16 (Shorts/Reels)</option>
-                        <option value="16:9">16:9 (YouTube)</option>
+                        <option value="16:9">16:9 (Landscape/YouTube)</option>
                     </select>
                 </div>
 
-                <div class="mb-6">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Bulk Images</label>
-                    <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-                        <div class="space-y-1 text-center">
-                            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
-                                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                            </svg>
-                            <div class="flex text-sm text-gray-600 justify-center">
-                                <label for="bulk_images" class="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                                    <span>Upload files</span>
-                                    <input id="bulk_images" name="bulk_images" type="file" multiple class="sr-only" accept="image/*" required>
-                                </label>
-                                <p class="pl-1">or drag and drop</p>
-                            </div>
-                            <p class="text-xs text-gray-500">PNG, JPG, GIF up to 10MB each</p>
-                        </div>
-                    </div>
-                    <div id="fileList" class="mt-2 text-sm text-gray-600"></div>
-                </div>
-
                 <div class="flex items-center">
-                    <button type="submit" id="matchBtn" class="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                        Match Images using AI
+                    <button type="submit" id="analyzeBtn" class="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        Generate Detailed Visual Prompts & Scenes
                     </button>
-                    <div id="matchLoading" class="hidden ml-4 flex items-center text-blue-600">
+                    <div id="analyzeLoading" class="hidden ml-4 flex items-center text-blue-600">
                         <div class="loader mr-2"></div>
-                        Analyzing...
+                        Analyzing with Gemini...
                     </div>
                 </div>
             </form>
-            <div id="uploadError" class="hidden mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-md"></div>
+            <div id="analyzeError" class="hidden mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-md"></div>
         </div>
 
-        <!-- Step 2: Mapping Grid -->
+        <!-- Step 2: Scene Manager -->
         <div id="step2" class="bg-white shadow rounded-lg p-6 mb-8 hidden">
-            <h2 class="text-xl font-bold text-gray-900 mb-4">Step 2: AI Scene Mapping</h2>
-            <p class="text-sm text-gray-600 mb-4">Review the AI's image assignments. You can manually adjust them if needed before rendering the final video.</p>
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Step 2: Interactive Scene Manager</h2>
+            <p class="text-sm text-gray-600 mb-6">Review the AI-generated prompts. Auto-fetch an AI image or upload your own downloaded Google Flow image for each scene.</p>
 
-            <div id="mappingGrid" class="space-y-4 mb-6">
-                <!-- JavaScript will populate this -->
+            <div id="scenesContainer" class="space-y-6 mb-8">
+                <!-- Javascript populates scene cards here -->
+            </div>
+
+            <hr class="mb-6 border-gray-200">
+
+            <h3 class="text-lg font-bold text-gray-900 mb-4">Audio Options</h3>
+            <div class="mb-6">
+                <div class="space-y-3">
+                    <div class="flex items-center">
+                        <input id="audio_male" name="audio_type" type="radio" value="male" checked class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300">
+                        <label for="audio_male" class="ml-3 block text-sm font-medium text-gray-700">Auto Neural Voice (Hindi Male)</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input id="audio_female" name="audio_type" type="radio" value="female" class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300">
+                        <label for="audio_female" class="ml-3 block text-sm font-medium text-gray-700">Auto Neural Voice (Hindi Female)</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input id="audio_custom" name="audio_type" type="radio" value="custom" class="focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300">
+                        <label for="audio_custom" class="ml-3 block text-sm font-medium text-gray-700">Upload Custom Voiceover MP3</label>
+                    </div>
+                </div>
+
+                <div id="customAudioContainer" class="mt-4 hidden">
+                    <input type="file" id="customAudioFile" accept="audio/mpeg,audio/mp3" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                </div>
             </div>
 
             <div class="flex items-center">
-                <button type="button" id="renderBtn" class="w-full inline-flex justify-center items-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                <button type="button" id="renderBtn" class="w-full inline-flex justify-center items-center py-3 px-4 border border-transparent shadow-sm text-md font-bold rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
                     Render Final Video
                 </button>
                 <div id="renderLoading" class="hidden ml-4 flex items-center text-green-600">
                     <div class="loader mr-2"></div>
-                    Generating Video...
+                    Stitching & Rendering...
                 </div>
             </div>
             <div id="renderError" class="hidden mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-md"></div>
@@ -105,14 +103,14 @@
 
         <!-- Step 3: Result -->
         <div id="step3" class="bg-white shadow rounded-lg p-6 hidden">
-            <h2 class="text-xl font-bold text-gray-900 mb-4">Step 3: Final Video</h2>
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Final Rendered Video</h2>
             <div class="flex justify-center mb-4">
-                <video id="videoPlayer" controls class="max-h-96 w-auto border rounded bg-black">
+                <video id="videoPlayer" controls class="max-h-[500px] w-auto border rounded bg-black">
                     Your browser does not support the video tag.
                 </video>
             </div>
             <div class="text-center">
-                <a id="downloadLink" href="#" download class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                <a id="downloadLink" href="#" download class="inline-flex items-center px-6 py-3 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                     Download MP4
                 </a>
             </div>
@@ -123,132 +121,203 @@
         let currentScenes = [];
         let currentAspectRatio = "16:9";
 
-        // Handle File Input Display
-        document.getElementById('bulk_images').addEventListener('change', function(e) {
-            const fileList = document.getElementById('fileList');
-            if (this.files.length > 0) {
-                fileList.textContent = `${this.files.length} images selected.`;
-            } else {
-                fileList.textContent = '';
-            }
-        });
-
-        // Step 1: Upload and Match
-        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const form = e.target;
-            const formData = new FormData();
-
-            const scriptText = document.getElementById('script').value;
-            currentAspectRatio = document.getElementById('aspect_ratio').value;
-            const fileInput = document.getElementById('bulk_images');
-
-            formData.append('script', scriptText);
-            formData.append('aspect_ratio', currentAspectRatio);
-
-            for (let i = 0; i < fileInput.files.length; i++) {
-                formData.append('images', fileInput.files[i]);
-            }
-
-            const matchBtn = document.getElementById('matchBtn');
-            const matchLoading = document.getElementById('matchLoading');
-            const uploadError = document.getElementById('uploadError');
-
-            uploadError.classList.add('hidden');
-            matchBtn.disabled = true;
-            matchBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            matchLoading.classList.remove('hidden');
-
-            try {
-                const response = await fetch('/match_images', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.detail || 'An error occurred during matching.');
+        // Handle audio radio toggles
+        document.querySelectorAll('input[name="audio_type"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const customContainer = document.getElementById('customAudioContainer');
+                if (e.target.value === 'custom') {
+                    customContainer.classList.remove('hidden');
+                } else {
+                    customContainer.classList.add('hidden');
                 }
-
-                currentScenes = data.matched_scenes;
-                renderMappingGrid();
-
-                // Hide Step 1 slightly, show Step 2
-                document.getElementById('step2').classList.remove('hidden');
-
-            } catch (error) {
-                uploadError.textContent = error.message;
-                uploadError.classList.remove('hidden');
-            } finally {
-                matchBtn.disabled = false;
-                matchBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-                matchLoading.classList.add('hidden');
-            }
+            });
         });
 
-        function renderMappingGrid() {
-            const grid = document.getElementById('mappingGrid');
-            grid.innerHTML = '';
-
-            // Collect all unique images uploaded for dropdown options
-            const uniqueImages = [...new Set(currentScenes.map(s => s.image))];
-
-            currentScenes.forEach((scene, index) => {
-                const item = document.createElement('div');
-                item.className = 'flex items-start p-4 border rounded-md bg-gray-50';
-
-                // Image preview & selector
-                const imgContainer = document.createElement('div');
-                imgContainer.className = 'flex-shrink-0 w-32 mr-4';
-
-                const img = document.createElement('img');
-                // Path comes from backend (e.g. app/outputs/...) - format for web viewing
-                img.src = scene.image.replace('app/', '/');
-                img.className = 'w-full h-auto rounded border';
-
-                const select = document.createElement('select');
-                select.className = 'mt-2 block w-full text-xs border-gray-300 rounded-md';
-                uniqueImages.forEach((imgSrc, imgIndex) => {
-                    const opt = document.createElement('option');
-                    opt.value = imgSrc;
-                    opt.text = `Image ${imgIndex + 1}`;
-                    if (imgSrc === scene.image) opt.selected = true;
-                    select.appendChild(opt);
-                });
-
-                select.addEventListener('change', (e) => {
-                    currentScenes[index].image = e.target.value;
-                    img.src = e.target.value.replace('app/', '/');
-                });
-
-                imgContainer.appendChild(img);
-                imgContainer.appendChild(select);
-
-                // Text info
-                const textContainer = document.createElement('div');
-                textContainer.className = 'flex-grow';
-
-                const badge = document.createElement('span');
-                badge.className = `inline-block px-2 py-1 text-xs font-semibold rounded-full mb-2 ${scene.source === 'ai' ? 'bg-purple-100 text-purple-800' : 'bg-gray-200 text-gray-800'}`;
-                badge.textContent = scene.source === 'ai' ? 'AI Matched' : 'Fallback Matched';
-
-                const text = document.createElement('p');
-                text.className = 'text-sm text-gray-800 italic';
-                text.textContent = `"${scene.text}"`;
-
-                textContainer.appendChild(badge);
-                textContainer.appendChild(text);
-
-                item.appendChild(imgContainer);
-                item.appendChild(textContainer);
-                grid.appendChild(item);
+        // Copy to clipboard helper
+        function copyPrompt(btnElement, text) {
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = btnElement.textContent;
+                btnElement.textContent = "Copied!";
+                setTimeout(() => { btnElement.textContent = originalText; }, 2000);
             });
         }
 
-        // Step 2: Render Video
+        // Generate AI image
+        async function fetchAIImage(index, promptText) {
+            const btn = document.getElementById(`fetch-btn-${index}`);
+            const loader = document.getElementById(`fetch-loader-${index}`);
+            const imgPreview = document.getElementById(`img-preview-${index}`);
+
+            btn.disabled = true;
+            btn.classList.add('opacity-50');
+            loader.classList.remove('hidden');
+
+            const formData = new FormData();
+            formData.append('prompt', promptText);
+            formData.append('aspect_ratio', currentAspectRatio);
+
+            try {
+                const res = await fetch('/generate_scene_image', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!res.ok) throw new Error("Failed to fetch image");
+                const data = await res.json();
+
+                currentScenes[index].image_url = data.image_url;
+                imgPreview.src = data.image_url;
+                imgPreview.classList.remove('hidden');
+            } catch (err) {
+                alert("Error generating image: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('opacity-50');
+                loader.classList.add('hidden');
+            }
+        }
+
+        // Upload custom image
+        async function uploadCustomImage(index, file) {
+            if (!file) return;
+            const loader = document.getElementById(`fetch-loader-${index}`);
+            const imgPreview = document.getElementById(`img-preview-${index}`);
+
+            loader.classList.remove('hidden');
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('aspect_ratio', currentAspectRatio);
+
+            try {
+                const res = await fetch('/upload_scene_image', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!res.ok) throw new Error("Failed to upload image");
+                const data = await res.json();
+
+                currentScenes[index].image_url = data.image_url;
+                imgPreview.src = data.image_url;
+                imgPreview.classList.remove('hidden');
+            } catch (err) {
+                alert("Error uploading image: " + err.message);
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+        function renderSceneCards() {
+            const container = document.getElementById('scenesContainer');
+            container.innerHTML = '';
+
+            currentScenes.forEach((scene, index) => {
+                const card = document.createElement('div');
+                card.className = 'border border-gray-200 rounded-lg p-5 bg-white shadow-sm flex flex-col md:flex-row gap-6';
+
+                // Left col: Text and Prompts
+                const leftCol = document.createElement('div');
+                leftCol.className = 'flex-grow w-full md:w-2/3 flex flex-col';
+
+                leftCol.innerHTML = `
+                    <div class="mb-3">
+                        <span class="inline-block px-2 py-1 text-xs font-bold text-white bg-blue-600 rounded">Scene ${index + 1}</span>
+                        <span class="ml-2 text-sm text-gray-500 font-medium">Est. 2-4 seconds</span>
+                    </div>
+                    <div class="mb-4 p-3 bg-gray-50 border rounded text-md text-gray-800 font-medium italic">
+                        "${scene.text}"
+                    </div>
+                    <div class="mb-2 flex justify-between items-end">
+                        <label class="block text-sm font-bold text-gray-700">Detailed AI Image Prompt</label>
+                        <button type="button" onclick="copyPrompt(this, \`${scene.prompt.replace(/`/g, "'")}\`)" class="text-xs text-blue-600 hover:text-blue-800 font-semibold">Copy Prompt</button>
+                    </div>
+                    <textarea rows="3" class="w-full text-sm border-gray-300 rounded p-2 text-gray-600 focus:ring-0 focus:border-gray-300" readonly>${scene.prompt}</textarea>
+                `;
+
+                // Right col: Image Management
+                const rightCol = document.createElement('div');
+                rightCol.className = 'w-full md:w-1/3 flex flex-col items-center justify-start border-t md:border-t-0 md:border-l pt-4 md:pt-0 md:pl-6 border-gray-200';
+
+                rightCol.innerHTML = `
+                    <div class="w-full aspect-[${currentAspectRatio === '16:9' ? '16/9' : '9/16'}] bg-gray-100 rounded border border-gray-300 mb-3 flex items-center justify-center overflow-hidden relative">
+                        <img id="img-preview-${index}" src="" class="hidden w-full h-full object-cover">
+                        <span id="fetch-loader-${index}" class="hidden loader absolute"></span>
+                        <span class="text-gray-400 text-xs text-center px-2" id="placeholder-${index}">No image assigned</span>
+                    </div>
+
+                    <button type="button" id="fetch-btn-${index}" onclick="fetchAIImage(${index}, \`${scene.prompt.replace(/`/g, "'")}\`)" class="w-full mb-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 py-1.5 px-3 rounded text-sm font-semibold transition-colors">
+                        Auto Fetch AI Image
+                    </button>
+
+                    <div class="relative w-full">
+                        <input type="file" id="upload-btn-${index}" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="uploadCustomImage(${index}, this.files[0])">
+                        <button type="button" class="w-full bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 py-1.5 px-3 rounded text-sm font-semibold transition-colors">
+                            Upload Custom Image
+                        </button>
+                    </div>
+                `;
+
+                card.appendChild(leftCol);
+                card.appendChild(rightCol);
+                container.appendChild(card);
+            });
+        }
+
+        // Step 1: Analyze Script
+        document.getElementById('analyzeForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const scriptText = document.getElementById('script').value;
+            currentAspectRatio = document.getElementById('aspect_ratio').value;
+
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            const analyzeLoading = document.getElementById('analyzeLoading');
+            const analyzeError = document.getElementById('analyzeError');
+
+            analyzeError.classList.add('hidden');
+            analyzeBtn.disabled = true;
+            analyzeBtn.classList.add('opacity-50');
+            analyzeLoading.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/analyze_script', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ script: scriptText, aspect_ratio: currentAspectRatio })
+                });
+
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Error analyzing script.');
+
+                currentScenes = data.scenes.map(s => ({...s, image_url: null}));
+                renderSceneCards();
+
+                document.getElementById('step2').classList.remove('hidden');
+            } catch (error) {
+                analyzeError.textContent = error.message;
+                analyzeError.classList.remove('hidden');
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzeBtn.classList.remove('opacity-50');
+                analyzeLoading.classList.add('hidden');
+            }
+        });
+
+        // Step 2: Render Final Video
         document.getElementById('renderBtn').addEventListener('click', async () => {
+            // Validate all images present
+            if (currentScenes.some(s => !s.image_url)) {
+                alert("Please generate or upload an image for every scene before rendering.");
+                return;
+            }
+
+            const audioType = document.querySelector('input[name="audio_type"]:checked').value;
+            const customAudioFile = document.getElementById('customAudioFile').files[0];
+
+            if (audioType === 'custom' && !customAudioFile) {
+                alert("Please select a custom MP3 file.");
+                return;
+            }
+
             const renderBtn = document.getElementById('renderBtn');
             const renderLoading = document.getElementById('renderLoading');
             const renderError = document.getElementById('renderError');
@@ -263,22 +332,22 @@
             renderLoading.classList.remove('hidden');
 
             try {
+                const formData = new FormData();
+                formData.append('aspect_ratio', currentAspectRatio);
+                formData.append('audio_type', audioType);
+                formData.append('scenes', JSON.stringify(currentScenes));
+
+                if (audioType === 'custom') {
+                    formData.append('custom_audio', customAudioFile);
+                }
+
                 const response = await fetch('/render_video', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        scenes: currentScenes,
-                        aspect_ratio: currentAspectRatio
-                    })
+                    body: formData
                 });
 
                 const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.detail || 'An error occurred during rendering.');
-                }
+                if (!response.ok) throw new Error(data.detail || 'An error occurred during rendering.');
 
                 // Success
                 videoPlayer.src = data.video_url;
